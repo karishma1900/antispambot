@@ -1,1 +1,1 @@
-worker: python spam_guard_bot.py
+python main.py
