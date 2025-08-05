@@ -49,7 +49,18 @@ def is_spam(message: types.Message) -> bool:
 
     return False
 
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    # Only respond in private chat
+    if message.chat.type != ChatType.PRIVATE:
+        await message.reply("Please chat with me in private.")
+        return
 
+    await message.reply(
+        "👋 Hello! I am your AntiSpam Bot.\n"
+        "Send /spamstats to see spam statistics.\n"
+        "Send /userstats <user_id> to check spam stats for a user."
+    )
 @dp.message()
 async def handle_message(message: types.Message):
     if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
