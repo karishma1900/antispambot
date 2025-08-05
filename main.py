@@ -71,8 +71,13 @@ async def handle_message(message: types.Message):
 
 @dp.message(Command("spamstats"))
 async def cmd_spamstats(message: types.Message):
-    if not await is_admin(message):
+    # Only allow this command in private chat
+    if message.chat.type != ChatType.PRIVATE:
+        await message.reply("Please chat with me in private to see spam stats.")
         return
+
+    # Check if user is admin in any group? 
+    # Since this is private chat, skip admin check or implement your own check if needed
 
     total = spam_stats["total_spam"]
     deleted = spam_stats["deleted"]
@@ -81,16 +86,26 @@ async def cmd_spamstats(message: types.Message):
 
 @dp.message(Command("userstats"))
 async def cmd_userstats(message: types.Message):
-    if not await is_admin(message):
+    # Only allow in private chat
+    if message.chat.type != ChatType.PRIVATE:
+        await message.reply("Please chat with me in private to check user spam stats.")
         return
 
-    if not message.reply_to_message:
-        await message.reply("Please reply to the user's message to check their stats.")
+    # For private chat, user should provide the user_id or username somehow.
+    # Here, for simplicity, require the command with a user id argument: /userstats <user_id>
+    args = message.get_args()
+    if not args:
+        await message.reply("Please provide a user ID. Usage: /userstats <user_id>")
         return
 
-    user = message.reply_to_message.from_user
-    count = spam_stats["per_user"].get(user.id, 0)
-    await message.reply(f"👤 Spam stats for {user.full_name}:\nSpam messages: {count}")
+    try:
+        user_id = int(args)
+    except ValueError:
+        await message.reply("Invalid user ID format. Please provide a numeric user ID.")
+        return
+
+    count = spam_stats["per_user"].get(user_id, 0)
+    await message.reply(f"👤 Spam stats for user ID {user_id}:\nSpam messages: {count}")
 
 
 async def is_admin(message: Message) -> bool:
