@@ -82,13 +82,11 @@ async def handle_message(message: types.Message):
 
 @dp.message(Command("spamstats"))
 async def cmd_spamstats(message: types.Message):
-    # Only allow this command in private chat
+    logger.info(f"Received /spamstats from user {message.from_user.id} in chat {message.chat.id}")
+
     if message.chat.type != ChatType.PRIVATE:
         await message.reply("Please chat with me in private to see spam stats.")
         return
-
-    # Check if user is admin in any group? 
-    # Since this is private chat, skip admin check or implement your own check if needed
 
     total = spam_stats["total_spam"]
     deleted = spam_stats["deleted"]
