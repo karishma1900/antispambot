@@ -6,7 +6,6 @@ from aiogram.filters import Command
 from aiogram.enums import ChatType
 from aiogram.types import Message
 from collections import defaultdict
-import os
 
 API_TOKEN = "8344832442:AAFrvRWPeWl8uLiBbIBw___S7345ickuLxM"
 
@@ -14,9 +13,9 @@ API_TOKEN = "8344832442:AAFrvRWPeWl8uLiBbIBw___S7345ickuLxM"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Bot
+# Bot and Dispatcher (IMPORTANT: pass bot to Dispatcher!)
 bot = Bot(token=API_TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(bot=bot)  # <-- Fix here!
 
 # Stats Storage
 spam_stats = {
@@ -29,7 +28,6 @@ spam_stats = {
 SPAM_LINK_PATTERN = re.compile(r"(http[s]?://|t\.me/|bit\.ly|\.com|\.ru|\.cn|\.xyz)")
 BANNED_WORDS = {"free", "crypto", "porn", "viagra", "nudes", "xxx"}
 MAX_EMOJI_COUNT = 10
-
 
 def is_spam(message: types.Message) -> bool:
     text = message.text or message.caption or ""
@@ -61,6 +59,7 @@ async def cmd_start(message: types.Message):
         "Send /spamstats to see spam statistics.\n"
         "Send /userstats <user_id> to check spam stats for a user."
     )
+
 @dp.message()
 async def handle_message(message: types.Message):
     if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
@@ -79,7 +78,6 @@ async def handle_message(message: types.Message):
         except Exception as e:
             logger.warning(f"Failed to delete message: {e}")
 
-
 @dp.message(Command("spamstats"))
 async def cmd_spamstats(message: types.Message):
     logger.info(f"Received /spamstats from user {message.from_user.id} in chat {message.chat.id}")
@@ -92,7 +90,6 @@ async def cmd_spamstats(message: types.Message):
     deleted = spam_stats["deleted"]
     await message.reply(f"🛡️ Spam Stats:\nTotal spam detected: {total}\nMessages deleted: {deleted}")
 
-
 @dp.message(Command("userstats"))
 async def cmd_userstats(message: types.Message):
     # Only allow in private chat
@@ -100,8 +97,6 @@ async def cmd_userstats(message: types.Message):
         await message.reply("Please chat with me in private to check user spam stats.")
         return
 
-    # For private chat, user should provide the user_id or username somehow.
-    # Here, for simplicity, require the command with a user id argument: /userstats <user_id>
     args = message.get_args()
     if not args:
         await message.reply("Please provide a user ID. Usage: /userstats <user_id>")
@@ -116,20 +111,10 @@ async def cmd_userstats(message: types.Message):
     count = spam_stats["per_user"].get(user_id, 0)
     await message.reply(f"👤 Spam stats for user ID {user_id}:\nSpam messages: {count}")
 
-
-async def is_admin(message: Message) -> bool:
-    try:
-        member = await bot.get_chat_member(message.chat.id, message.from_user.id)
-        return member.status in {"administrator", "creator"}
-    except:
-        return False
-
-
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     logger.info("Starting bot...")
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     try:
