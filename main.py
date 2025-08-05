@@ -8,7 +8,7 @@ from aiogram.types import Message
 from collections import defaultdict
 import os
 
-API_TOKEN = os.getenv("TOKEN")  # Set your bot token via environment variable
+API_TOKEN = "8344832442:AAFrvRWPeWl8uLiBbIBw___S7345ickuLxM"
 
 # Logging
 logging.basicConfig(level=logging.INFO)
