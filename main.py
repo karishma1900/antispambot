@@ -3,7 +3,6 @@ import re
 import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.enums import ChatType
 from aiogram.types import Message
 from collections import defaultdict
 from collections import deque
@@ -12,18 +11,10 @@ import time
 # Track recent joins in each chat: {chat_id: deque of (timestamp, user_id)}
 recent_joins = defaultdict(lambda: deque())
 
-# Stats Storage for Spam Messages and Join Spam
-spam_stats = {
-    "total_spam": 0,
-    "deleted": 0,
-    "per_user": defaultdict(int),
-    "join_spam": defaultdict(int),  # To store number of join spams for each group
-}
-
 # Thresholds
 JOIN_THRESHOLD = 5         # Number of users
-TIME_WINDOW = 10           # Seconds
-API_TOKEN = "your_api_token"
+TIME_WINDOW = 10  
+API_TOKEN = "your-bot-api-token-here"
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -31,7 +22,15 @@ logger = logging.getLogger(__name__)
 
 # Bot and Dispatcher (IMPORTANT: pass bot to Dispatcher!)
 bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot=bot)
+dp = Dispatcher()
+
+# Stats Storage
+spam_stats = {
+    "total_spam": 0,
+    "deleted": 0,
+    "per_user": defaultdict(int),
+    "join_spam": defaultdict(int),
+}
 
 # Patterns for detecting spam
 SPAM_LINK_PATTERN = re.compile(r"(http[s]?://|t\.me/|bit\.ly|\.com|\.ru|\.cn|\.xyz)")
@@ -59,7 +58,7 @@ def is_spam(message: types.Message) -> bool:
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     # Only respond in private chat
-    if message.chat.type != ChatType.PRIVATE:
+    if message.chat.type != "private":
         await message.reply("Please chat with me in private.")
         return
 
@@ -71,7 +70,7 @@ async def cmd_start(message: types.Message):
 
 @dp.message()
 async def handle_message(message: types.Message):
-    if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+    if message.chat.type not in {"group", "supergroup"}:
         return  # Ignore private chats
 
     if message.from_user.is_bot:
@@ -91,22 +90,19 @@ async def handle_message(message: types.Message):
 async def cmd_spamstats(message: types.Message):
     logger.info(f"Received /spamstats from user {message.from_user.id} in chat {message.chat.id}")
 
-    if message.chat.type != ChatType.PRIVATE:
+    if message.chat.type != "private":
         await message.reply("Please chat with me in private to see spam stats.")
         return
 
     total = spam_stats["total_spam"]
     deleted = spam_stats["deleted"]
-    total_joins_banned = sum(spam_stats["join_spam"].values())  # Total join spams across all chats
-    await message.reply(f"🛡️ Spam Stats:\n"
-                        f"Total spam messages detected: {total}\n"
-                        f"Messages deleted: {deleted}\n"
-                        f"Total users banned due to join spam: {total_joins_banned}")
+    banned = sum(spam_stats["join_spam"].values())
+    await message.reply(f"🛡️ Spam Stats:\nTotal spam detected: {total}\nMessages deleted: {deleted}\nUsers banned for join spam: {banned}")
 
 @dp.message(Command("userstats"))
 async def cmd_userstats(message: types.Message):
     # Only allow in private chat
-    if message.chat.type != ChatType.PRIVATE:
+    if message.chat.type != "private":
         await message.reply("Please chat with me in private to check user spam stats.")
         return
 
@@ -123,17 +119,6 @@ async def cmd_userstats(message: types.Message):
 
     count = spam_stats["per_user"].get(user_id, 0)
     await message.reply(f"👤 Spam stats for user ID {user_id}:\nSpam messages: {count}")
-
-async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
-    logger.info("Starting bot...")
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("Bot stopped.")
 
 @dp.chat_member()
 async def handle_new_chat_members(event: types.ChatMemberUpdated):
@@ -162,14 +147,23 @@ async def handle_new_chat_members(event: types.ChatMemberUpdated):
                 try:
                     await bot.ban_chat_member(chat_id, uid)
                     logger.info(f"Banned user {uid} for join spam.")
+                    spam_stats["join_spam"][chat_id] += 1
                 except Exception as e:
                     logger.warning(f"Failed to ban user {uid}: {e}")
 
             # ⚠️ Notify group
             await bot.send_message(chat_id, "⚠️ Join spam detected. Recent new users have been banned.")
 
-            # Update join spam stats
-            spam_stats["join_spam"][chat_id] += len(recent_joins[chat_id])
-
             # Clear queue after action
             recent_joins[chat_id].clear()
+
+async def main():
+    await bot.delete_webhook(drop_pending_updates=True)
+    logger.info("Starting bot...")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Bot stopped.")
