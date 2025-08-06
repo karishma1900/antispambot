@@ -13,7 +13,7 @@ recent_joins = defaultdict(lambda: deque())
 
 # Thresholds
 JOIN_THRESHOLD = 2         # Number of users
-TIME_WINDOW = 2  
+TIME_WINDOW = 20  
 API_TOKEN = "8344832442:AAFrvRWPeWl8uLiBbIBw___S7345ickuLxM"
 
 # Logging
