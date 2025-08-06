@@ -27,7 +27,6 @@ spam_stats = {
 
 # Bulk Join Detection
 JOIN_WINDOW = timedelta(seconds=10)  # Time window for bulk join detection
-recent_joins = []
 
 # Patterns for detecting spam
 SPAM_LINK_PATTERN = re.compile(r"(http[s]?://|t\.me/|bit\.ly|\.com|\.ru|\.cn|\.xyz)")
@@ -52,6 +51,9 @@ def is_spam(message: types.Message) -> bool:
 
     return False
 
+# Change recent_joins to store tuples: (timestamp, user_id, chat_id)
+recent_joins = []
+
 async def remove_user_if_suspect(member: types.ChatMember):
     """
     Removes a user if they join via a suspicious method.
@@ -68,19 +70,23 @@ async def remove_user_if_suspect(member: types.ChatMember):
         except Exception as e:
             logger.warning(f"Failed to remove user: {e}")
 
-    # Check for bulk join (multiple joins within a short time window)
     now = datetime.now()
-    recent_joins.append(now)
+    # Append tuple of join info
+    recent_joins.append((now, member.user.id, member.chat.id))
 
-    # Clean up recent_joins to only keep joins within the valid time window
-    recent_joins[:] = [timestamp for timestamp in recent_joins if now - timestamp < JOIN_WINDOW]
+    # Keep only recent joins within JOIN_WINDOW
+    recent_joins[:] = [(t, u, c) for (t, u, c) in recent_joins if now - t < JOIN_WINDOW]
 
-    if len(recent_joins) > 3:  # More than 3 joins in 10 seconds -> bulk join suspicion
-        try:
-            await bot.kick_chat_member(member.chat.id, member.user.id)
-            logger.info(f"Bulk join detected, removed user: {member.user.full_name}")
-        except Exception as e:
-            logger.warning(f"Failed to remove user: {e}")
+    if len(recent_joins) > 3:  # Bulk join detected
+        for _, user_id, chat_id in recent_joins:
+            try:
+                await bot.kick_chat_member(chat_id, user_id)
+                logger.info(f"Bulk join detected, removed user ID: {user_id}")
+            except Exception as e:
+                logger.warning(f"Failed to remove user {user_id}: {e}")
+
+        recent_joins.clear()  # Clear after kicking all bulk joiners
+
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -141,13 +147,15 @@ async def cmd_spamstats(message: types.Message):
         # Directly reply with the stats and user info in the message
         if total is not None and deleted is not None:
             await message.reply(
-                f"🛡️ Spam Stats requested by {message.from_user.full_name}:\n"
-                f"Total spam detected: {total}\n"
-                f"Messages deleted: {deleted}\n"
-                f"Unique users flagged: {len(spam_stats['per_user'])}\n\n"
-                f"Users who shared spam messages:\n"
-                + "\n".join(user_spam_info) if user_spam_info else "No users flagged for spam yet."
-            )
+    (
+        f"🛡️ Spam Stats requested by {message.from_user.full_name}:\n"
+        f"Total spam detected: {total}\n"
+        f"Messages deleted: {deleted}\n"
+        f"Unique users flagged: {len(spam_stats['per_user'])}\n\n"
+        f"Users who shared spam messages:\n"
+        + ("\n".join(user_spam_info) if user_spam_info else "No users flagged for spam yet.")
+    )
+)
         else:
             await message.reply(
                 f"🛡️ Spam Stats requested by {message.from_user.full_name}:\n"
