@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Bot and Dispatcher (IMPORTANT: pass bot to Dispatcher!)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot=bot)  # <-- Fix here!
-
+kicked_users = defaultdict(int)
 # Stats Storage
 spam_stats = {
     "total_spam": 0,
@@ -55,37 +55,34 @@ def is_spam(message: types.Message) -> bool:
 recent_joins = []
 
 async def remove_user_if_suspect(member: types.ChatMember):
-    """
-    Removes a user if they join via a suspicious method.
-    This includes joining in bulk or through links that may be malicious.
-    """
     if member.user.is_bot:
-        return  # Ignore bots
+        return
 
-    # Check if the user joined via suspicious link
+    # Suspicious username check
     if SPAM_LINK_PATTERN.search(member.user.username or ""):
         try:
             await bot.kick_chat_member(member.chat.id, member.user.id)
+            kicked_users[member.user.id] += 1   # <-- Track kicked user
             logger.info(f"Suspicious user {member.user.full_name} removed due to a suspicious link.")
         except Exception as e:
             logger.warning(f"Failed to remove user: {e}")
 
     now = datetime.now()
-    # Append tuple of join info
     recent_joins.append((now, member.user.id, member.chat.id))
 
-    # Keep only recent joins within JOIN_WINDOW
+    # Filter recent joins
     recent_joins[:] = [(t, u, c) for (t, u, c) in recent_joins if now - t < JOIN_WINDOW]
 
     if len(recent_joins) > 3:  # Bulk join detected
         for _, user_id, chat_id in recent_joins:
             try:
                 await bot.kick_chat_member(chat_id, user_id)
+                kicked_users[user_id] += 1  # <-- Track kicked user here too
                 logger.info(f"Bulk join detected, removed user ID: {user_id}")
             except Exception as e:
                 logger.warning(f"Failed to remove user {user_id}: {e}")
 
-        recent_joins.clear()  # Clear after kicking all bulk joiners
+        recent_joins.clear()
 
 
 @dp.message(Command("start"))
@@ -106,19 +103,23 @@ async def cmd_start(message: types.Message):
 async def cmd_spamstats(message: types.Message):
     logger.info(f"Received /spamstats command from {message.from_user.full_name} in chat {message.chat.id}")
     try:
-        # Check if spam stats are available
         total = spam_stats["total_spam"]
         deleted = spam_stats["deleted"]
 
-        logger.info(f"Spam stats: Total detected spam: {total}, Total deleted: {deleted}")
+        # Prepare kicked users info
+        kicked_user_info = []
+        for user_id, kick_count in kicked_users.items():
+            try:
+                user = await bot.get_chat_member(message.chat.id, user_id)
+                user_name = user.user.full_name
+                kicked_user_info.append(f"{user_name} (User ID: {user_id}) - Removed {kick_count} times")
+            except Exception as e:
+                logger.error(f"Failed to fetch user info for kicked user {user_id}: {e}")
+                kicked_user_info.append(f"User ID {user_id} - Removed {kick_count} times (info unavailable)")
 
-        # Fetch the full name of the user requesting the stats
-        user_name = message.from_user.full_name  # You can use `username` if you prefer
-
-        # Prepare the list of users who have shared spam messages
+        # Prepare spam users info
         user_spam_info = []
         for user_id, spam_count in spam_stats["per_user"].items():
-            # Fetch user info (full name) from the cached chat member data
             try:
                 user = await bot.get_chat_member(message.chat.id, user_id)
                 user_name = user.user.full_name
@@ -127,27 +128,27 @@ async def cmd_spamstats(message: types.Message):
                 logger.error(f"Failed to fetch user info for {user_id}: {e}")
                 user_spam_info.append(f"User ID {user_id} - {spam_count} spam messages (info unavailable)")
 
-        # Directly reply with the stats and user info in the message
-        if total is not None and deleted is not None:
-            await message.reply(
-    (
-        f"🛡️ Spam Stats requested by {message.from_user.full_name}:\n"
-        f"Total spam detected: {total}\n"
-        f"Messages deleted: {deleted}\n"
-        f"Unique users flagged: {len(spam_stats['per_user'])}\n\n"
-        f"Users who shared spam messages:\n"
-        + ("\n".join(user_spam_info) if user_spam_info else "No users flagged for spam yet.")
-    )
-)
-        else:
-            await message.reply(
+        kicked_text = (
+            "\n\nUsers who were removed from the group:\n" + "\n".join(kicked_user_info)
+            if kicked_user_info else "\n\nNo users have been removed from the group yet."
+        )
+
+        await message.reply(
+            (
                 f"🛡️ Spam Stats requested by {message.from_user.full_name}:\n"
-                "No stats available yet. Please ensure the bot is actively monitoring spam."
+                f"Total spam detected: {total}\n"
+                f"Messages deleted: {deleted}\n"
+                f"Unique users flagged: {len(spam_stats['per_user'])}\n\n"
+                f"Users who shared spam messages:\n"
+                + ("\n".join(user_spam_info) if user_spam_info else "No users flagged for spam yet.")
+                + kicked_text
             )
+        )
 
     except Exception as e:
         logger.error(f"Error in /spamstats command: {e}")
         await message.reply("⚠️ An error occurred while fetching spam stats. Please try again later.")
+
 @dp.message()
 async def handle_message(message: types.Message):
     if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
