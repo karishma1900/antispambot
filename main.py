@@ -101,23 +101,6 @@ async def cmd_start(message: types.Message):
         
     )
 
-@dp.message()
-async def handle_message(message: types.Message):
-    if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
-        return  # Ignore private chats
-
-    if message.from_user.is_bot:
-        return  # Ignore other bots
-
-    if is_spam(message):
-        try:
-            await message.delete()
-            spam_stats["total_spam"] += 1
-            spam_stats["deleted"] += 1
-            spam_stats["per_user"][message.from_user.id] += 1
-            logger.info(f"Deleted spam from {message.from_user.full_name}")
-        except Exception as e:
-            logger.warning(f"Failed to delete message: {e}")
 
 @dp.message(Command("spamstats"))
 async def cmd_spamstats(message: types.Message):
@@ -165,7 +148,23 @@ async def cmd_spamstats(message: types.Message):
     except Exception as e:
         logger.error(f"Error in /spamstats command: {e}")
         await message.reply("⚠️ An error occurred while fetching spam stats. Please try again later.")
+@dp.message()
+async def handle_message(message: types.Message):
+    if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        return  # Ignore private chats
 
+    if message.from_user.is_bot:
+        return  # Ignore other bots
+
+    if is_spam(message):
+        try:
+            await message.delete()
+            spam_stats["total_spam"] += 1
+            spam_stats["deleted"] += 1
+            spam_stats["per_user"][message.from_user.id] += 1
+            logger.info(f"Deleted spam from {message.from_user.full_name}")
+        except Exception as e:
+            logger.warning(f"Failed to delete message: {e}")
 
 @dp.message(Command("userstats"))
 async def cmd_userstats(message: types.Message):
