@@ -13,8 +13,8 @@ recent_joins = defaultdict(lambda: deque())
 
 # Thresholds
 JOIN_THRESHOLD = 5         # Number of users
-TIME_WINDOW = 10  
-API_TOKEN = "your-bot-api-token-here"
+TIME_WINDOW = 2  
+API_TOKEN = "8344832442:AAFrvRWPeWl8uLiBbIBw___S7345ickuLxM"
 
 # Logging
 logging.basicConfig(level=logging.INFO)
