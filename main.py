@@ -92,7 +92,7 @@ async def cmd_start(message: types.Message):
     await message.reply(
         "👋 Hello! I am your AntiSpam Bot.\n"
         "Send /spamstats to see spam statistics.\n"
-        "Send /userstats <user_id> to check spam stats for a user."
+        
     )
 
 @dp.message()
@@ -115,17 +115,49 @@ async def handle_message(message: types.Message):
 
 @dp.message(Command("spamstats"))
 async def cmd_spamstats(message: types.Message):
-    logger.info(f"Received /spamstats command from user {message.from_user.id} in chat {message.chat.id}")
+    logger.info(f"Received /spamstats command from {message.from_user.full_name} in chat {message.chat.id}")
+    try:
+        # Check if spam stats are available
+        total = spam_stats["total_spam"]
+        deleted = spam_stats["deleted"]
 
-    if message.chat.type != ChatType.PRIVATE:
-        logger.info("User is not in a private chat, replying to let them know.")
-        await message.reply("Please chat with me in private to see spam stats.")
-        return
+        logger.info(f"Spam stats: Total detected spam: {total}, Total deleted: {deleted}")
 
-    total = spam_stats["total_spam"]
-    deleted = spam_stats["deleted"]
-    logger.info(f"Spam stats: Total detected spam: {total}, Total deleted: {deleted}")
-    await message.reply(f"🛡️ Spam Stats:\nTotal spam detected: {total}\nMessages deleted: {deleted}")
+        # Fetch the full name of the user requesting the stats
+        user_name = message.from_user.full_name  # You can use `username` if you prefer
+
+        # Prepare the list of users who have shared spam messages
+        user_spam_info = []
+        for user_id, spam_count in spam_stats["per_user"].items():
+            # Fetch user info (full name) from the cached chat member data
+            try:
+                user = await bot.get_chat_member(message.chat.id, user_id)
+                user_name = user.user.full_name
+                user_spam_info.append(f"{user_name} (User ID: {user_id}) - {spam_count} spam messages")
+            except Exception as e:
+                logger.error(f"Failed to fetch user info for {user_id}: {e}")
+                user_spam_info.append(f"User ID {user_id} - {spam_count} spam messages (info unavailable)")
+
+        # Directly reply with the stats and user info in the message
+        if total is not None and deleted is not None:
+            await message.reply(
+                f"🛡️ Spam Stats requested by {message.from_user.full_name}:\n"
+                f"Total spam detected: {total}\n"
+                f"Messages deleted: {deleted}\n"
+                f"Unique users flagged: {len(spam_stats['per_user'])}\n\n"
+                f"Users who shared spam messages:\n"
+                + "\n".join(user_spam_info) if user_spam_info else "No users flagged for spam yet."
+            )
+        else:
+            await message.reply(
+                f"🛡️ Spam Stats requested by {message.from_user.full_name}:\n"
+                "No stats available yet. Please ensure the bot is actively monitoring spam."
+            )
+
+    except Exception as e:
+        logger.error(f"Error in /spamstats command: {e}")
+        await message.reply("⚠️ An error occurred while fetching spam stats. Please try again later.")
+
 
 @dp.message(Command("userstats"))
 async def cmd_userstats(message: types.Message):
