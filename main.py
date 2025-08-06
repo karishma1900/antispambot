@@ -2,8 +2,8 @@ import logging
 import re
 import asyncio
 from aiogram import Bot, Dispatcher, types
+from aiogram.types import Message, ChatMemberUpdated
 from aiogram.filters import Command
-from aiogram.types import Message
 from collections import defaultdict, deque
 import time
 
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Bot and Dispatcher
 bot = Bot(token=API_TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(bot)
 
 # Stats Storage
 spam_stats = {
@@ -86,7 +86,7 @@ async def handle_message(message: types.Message):
             logger.warning(f"Failed to delete message: {e}")
 
 @dp.chat_member()
-async def handle_new_chat_members(event: types.ChatMemberUpdated):
+async def handle_new_chat_members(event: ChatMemberUpdated):
     chat_id = event.chat.id
 
     # Detect actual "join" (not role changes, kicks, etc.)
@@ -125,7 +125,7 @@ async def handle_new_chat_members(event: types.ChatMemberUpdated):
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     logger.info("Starting bot...")
-    await dp.start_polling(bot)
+    await dp.start_polling()
 
 if __name__ == "__main__":
     try:
