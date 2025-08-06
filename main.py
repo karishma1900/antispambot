@@ -6,8 +6,24 @@ from aiogram.filters import Command
 from aiogram.enums import ChatType
 from aiogram.types import Message
 from collections import defaultdict
+from collections import deque
+import time
 
-API_TOKEN = "8344832442:AAFrvRWPeWl8uLiBbIBw___S7345ickuLxM"
+# Track recent joins in each chat: {chat_id: deque of (timestamp, user_id)}
+recent_joins = defaultdict(lambda: deque())
+
+# Stats Storage for Spam Messages and Join Spam
+spam_stats = {
+    "total_spam": 0,
+    "deleted": 0,
+    "per_user": defaultdict(int),
+    "join_spam": defaultdict(int),  # To store number of join spams for each group
+}
+
+# Thresholds
+JOIN_THRESHOLD = 5         # Number of users
+TIME_WINDOW = 10           # Seconds
+API_TOKEN = "your_api_token"
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -15,14 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Bot and Dispatcher (IMPORTANT: pass bot to Dispatcher!)
 bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot=bot)  # <-- Fix here!
-
-# Stats Storage
-spam_stats = {
-    "total_spam": 0,
-    "deleted": 0,
-    "per_user": defaultdict(int),
-}
+dp = Dispatcher(bot=bot)
 
 # Patterns for detecting spam
 SPAM_LINK_PATTERN = re.compile(r"(http[s]?://|t\.me/|bit\.ly|\.com|\.ru|\.cn|\.xyz)")
@@ -88,7 +97,11 @@ async def cmd_spamstats(message: types.Message):
 
     total = spam_stats["total_spam"]
     deleted = spam_stats["deleted"]
-    await message.reply(f"🛡️ Spam Stats:\nTotal spam detected: {total}\nMessages deleted: {deleted}")
+    total_joins_banned = sum(spam_stats["join_spam"].values())  # Total join spams across all chats
+    await message.reply(f"🛡️ Spam Stats:\n"
+                        f"Total spam messages detected: {total}\n"
+                        f"Messages deleted: {deleted}\n"
+                        f"Total users banned due to join spam: {total_joins_banned}")
 
 @dp.message(Command("userstats"))
 async def cmd_userstats(message: types.Message):
@@ -121,3 +134,42 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Bot stopped.")
+
+@dp.chat_member()
+async def handle_new_chat_members(event: types.ChatMemberUpdated):
+    chat_id = event.chat.id
+
+    # Detect actual "join" (not role changes, kicks, etc.)
+    if (
+        event.old_chat_member.status in {"left", "kicked"}
+        and event.new_chat_member.status == "member"
+    ):
+        now = time.time()
+        user_id = event.new_chat_member.user.id
+
+        # Add join to recent queue
+        recent_joins[chat_id].append((now, user_id))
+
+        # Remove joins older than the time window
+        while recent_joins[chat_id] and now - recent_joins[chat_id][0][0] > TIME_WINDOW:
+            recent_joins[chat_id].popleft()
+
+        # If too many joins in short time, ban them all
+        if len(recent_joins[chat_id]) >= JOIN_THRESHOLD:
+            logger.warning(f"🚨 Join spam detected in chat {chat_id}! Banning recent joiners.")
+
+            for _, uid in recent_joins[chat_id]:
+                try:
+                    await bot.ban_chat_member(chat_id, uid)
+                    logger.info(f"Banned user {uid} for join spam.")
+                except Exception as e:
+                    logger.warning(f"Failed to ban user {uid}: {e}")
+
+            # ⚠️ Notify group
+            await bot.send_message(chat_id, "⚠️ Join spam detected. Recent new users have been banned.")
+
+            # Update join spam stats
+            spam_stats["join_spam"][chat_id] += len(recent_joins[chat_id])
+
+            # Clear queue after action
+            recent_joins[chat_id].clear()
