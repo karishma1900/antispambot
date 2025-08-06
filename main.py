@@ -21,7 +21,9 @@ logger = logging.getLogger(__name__)
 
 # Bot and Dispatcher
 bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
+dp = Dispatcher()  # Dispatcher initialization without passing bot directly
+
+dp.bot = bot  # Manually assign bot object to dispatcher
 
 # Stats Storage
 spam_stats = {
