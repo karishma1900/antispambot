@@ -58,17 +58,22 @@ async def remove_user_if_suspect(member: types.ChatMember):
     if member.user.is_bot:
         return
 
+    chat_id = member.chat.id
+    user_id = member.user.id
+
     # Suspicious username check
     if SPAM_LINK_PATTERN.search(member.user.username or ""):
         try:
-            await bot.kick_chat_member(member.chat.id, member.user.id)
-            kicked_users[member.user.id] += 1   # <-- Track kicked user
+            await bot.ban_chat_member(chat_id, user_id)
+            await bot.unban_chat_member(chat_id, user_id)
+            kicked_users[user_id] += 1
             logger.info(f"Suspicious user {member.user.full_name} removed due to a suspicious link.")
+            return  # User removed, skip further checks
         except Exception as e:
-            logger.warning(f"Failed to remove user: {e}")
+            logger.warning(f"Failed to remove user {member.user.full_name}: {e}")
 
     now = datetime.now()
-    recent_joins.append((now, member.user.id, member.chat.id))
+    recent_joins.append((now, user_id, chat_id))
 
     # Filter recent joins
     recent_joins[:] = [(t, u, c) for (t, u, c) in recent_joins if now - t < JOIN_WINDOW]
@@ -76,13 +81,15 @@ async def remove_user_if_suspect(member: types.ChatMember):
     if len(recent_joins) > 3:  # Bulk join detected
         for _, user_id, chat_id in recent_joins:
             try:
-                await bot.kick_chat_member(chat_id, user_id)
-                kicked_users[user_id] += 1  # <-- Track kicked user here too
+                await bot.ban_chat_member(chat_id, user_id)
+                await bot.unban_chat_member(chat_id, user_id)
+                kicked_users[user_id] += 1
                 logger.info(f"Bulk join detected, removed user ID: {user_id}")
             except Exception as e:
                 logger.warning(f"Failed to remove user {user_id}: {e}")
 
         recent_joins.clear()
+
 
 
 @dp.message(Command("start"))
