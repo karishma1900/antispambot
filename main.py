@@ -4,23 +4,22 @@ import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import Message
-from collections import defaultdict
-from collections import deque
+from collections import defaultdict, deque
 import time
 
 # Track recent joins in each chat: {chat_id: deque of (timestamp, user_id)}
 recent_joins = defaultdict(lambda: deque())
 
 # Thresholds
-JOIN_THRESHOLD = 2         # Number of users
-TIME_WINDOW = 30  
+JOIN_THRESHOLD = 2  # Number of users
+TIME_WINDOW = 0.5   # Time window in seconds (detect joins within 0.5 seconds)
 API_TOKEN = "8344832442:AAFrvRWPeWl8uLiBbIBw___S7345ickuLxM"
 
 # Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Bot and Dispatcher (IMPORTANT: pass bot to Dispatcher!)
+# Bot and Dispatcher
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
@@ -86,40 +85,6 @@ async def handle_message(message: types.Message):
         except Exception as e:
             logger.warning(f"Failed to delete message: {e}")
 
-@dp.message(Command("spamstats"))
-async def cmd_spamstats(message: types.Message):
-    logger.info(f"Received /spamstats from user {message.from_user.id} in chat {message.chat.id}")
-
-    if message.chat.type != "private":
-        await message.reply("Please chat with me in private to see spam stats.")
-        return
-
-    total = spam_stats["total_spam"]
-    deleted = spam_stats["deleted"]
-    banned = sum(spam_stats["join_spam"].values())
-    await message.reply(f"🛡️ Spam Stats:\nTotal spam detected: {total}\nMessages deleted: {deleted}\nUsers banned for join spam: {banned}")
-
-@dp.message(Command("userstats"))
-async def cmd_userstats(message: types.Message):
-    # Only allow in private chat
-    if message.chat.type != "private":
-        await message.reply("Please chat with me in private to check user spam stats.")
-        return
-
-    args = message.get_args()
-    if not args:
-        await message.reply("Please provide a user ID. Usage: /userstats <user_id>")
-        return
-
-    try:
-        user_id = int(args)
-    except ValueError:
-        await message.reply("Invalid user ID format. Please provide a numeric user ID.")
-        return
-
-    count = spam_stats["per_user"].get(user_id, 0)
-    await message.reply(f"👤 Spam stats for user ID {user_id}:\nSpam messages: {count}")
-
 @dp.chat_member()
 async def handle_new_chat_members(event: types.ChatMemberUpdated):
     chat_id = event.chat.id
@@ -129,17 +94,17 @@ async def handle_new_chat_members(event: types.ChatMemberUpdated):
         event.old_chat_member.status in {"left", "kicked"}
         and event.new_chat_member.status == "member"
     ):
-        now = time.time()
+        now = time.time()  # Current time in seconds (with floating-point precision)
         user_id = event.new_chat_member.user.id
 
         # Add join to recent queue
         recent_joins[chat_id].append((now, user_id))
 
-        # Remove joins older than the time window
+        # Remove joins older than the time window (still keeping them for comparison)
         while recent_joins[chat_id] and now - recent_joins[chat_id][0][0] > TIME_WINDOW:
             recent_joins[chat_id].popleft()
 
-        # If too many joins in short time, ban them all
+        # If there are 2 or more recent joins within the time window, treat it as spam
         if len(recent_joins[chat_id]) >= JOIN_THRESHOLD:
             logger.warning(f"🚨 Join spam detected in chat {chat_id}! Banning recent joiners.")
 
