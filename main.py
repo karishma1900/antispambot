@@ -6,6 +6,7 @@ from aiogram.filters import Command
 from aiogram.enums import ChatType
 from aiogram.types import Message
 from collections import defaultdict
+from datetime import datetime, timedelta
 
 API_TOKEN = "8344832442:AAFrvRWPeWl8uLiBbIBw___S7345ickuLxM"
 
@@ -23,6 +24,10 @@ spam_stats = {
     "deleted": 0,
     "per_user": defaultdict(int),
 }
+
+# Bulk Join Detection
+JOIN_WINDOW = timedelta(seconds=10)  # Time window for bulk join detection
+recent_joins = []
 
 # Patterns for detecting spam
 SPAM_LINK_PATTERN = re.compile(r"(http[s]?://|t\.me/|bit\.ly|\.com|\.ru|\.cn|\.xyz)")
@@ -46,6 +51,36 @@ def is_spam(message: types.Message) -> bool:
         return True
 
     return False
+
+async def remove_user_if_suspect(member: types.ChatMember):
+    """
+    Removes a user if they join via a suspicious method.
+    This includes joining in bulk or through links that may be malicious.
+    """
+    if member.user.is_bot:
+        return  # Ignore bots
+
+    # Check if the user joined via suspicious link
+    if SPAM_LINK_PATTERN.search(member.user.username or ""):
+        try:
+            await bot.kick_chat_member(member.chat.id, member.user.id)
+            logger.info(f"Suspicious user {member.user.full_name} removed due to a suspicious link.")
+        except Exception as e:
+            logger.warning(f"Failed to remove user: {e}")
+
+    # Check for bulk join (multiple joins within a short time window)
+    now = datetime.now()
+    recent_joins.append(now)
+
+    # Clean up recent_joins to only keep joins within the valid time window
+    recent_joins[:] = [timestamp for timestamp in recent_joins if now - timestamp < JOIN_WINDOW]
+
+    if len(recent_joins) > 3:  # More than 3 joins in 10 seconds -> bulk join suspicion
+        try:
+            await bot.kick_chat_member(member.chat.id, member.user.id)
+            logger.info(f"Bulk join detected, removed user: {member.user.full_name}")
+        except Exception as e:
+            logger.warning(f"Failed to remove user: {e}")
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -80,14 +115,16 @@ async def handle_message(message: types.Message):
 
 @dp.message(Command("spamstats"))
 async def cmd_spamstats(message: types.Message):
-    logger.info(f"Received /spamstats from user {message.from_user.id} in chat {message.chat.id}")
+    logger.info(f"Received /spamstats command from user {message.from_user.id} in chat {message.chat.id}")
 
     if message.chat.type != ChatType.PRIVATE:
+        logger.info("User is not in a private chat, replying to let them know.")
         await message.reply("Please chat with me in private to see spam stats.")
         return
 
     total = spam_stats["total_spam"]
     deleted = spam_stats["deleted"]
+    logger.info(f"Spam stats: Total detected spam: {total}, Total deleted: {deleted}")
     await message.reply(f"🛡️ Spam Stats:\nTotal spam detected: {total}\nMessages deleted: {deleted}")
 
 @dp.message(Command("userstats"))
@@ -110,6 +147,12 @@ async def cmd_userstats(message: types.Message):
 
     count = spam_stats["per_user"].get(user_id, 0)
     await message.reply(f"👤 Spam stats for user ID {user_id}:\nSpam messages: {count}")
+
+@dp.chat_member()
+async def on_user_join(member: types.ChatMemberUpdated):
+    # Check if the new member joined the group
+    if member.new_chat_member.status == "member":
+        await remove_user_if_suspect(member.new_chat_member)
 
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
